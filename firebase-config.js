@@ -1,10 +1,8 @@
-
 // ═══════════════════════════════════════════════════════════
 //  SUMMIT — Firebase Configuration
-//  Înlocuiește valorile de mai jos cu cele din consola ta!
 // ═══════════════════════════════════════════════════════════
 
-const FIREBASE_CONFIG = {
+export const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyDFf9sGsd2iCadu2zxxaM3zIzH3t1YOzmo",
   authDomain:        "summit-expedition-manager.firebaseapp.com",
   projectId:         "summit-expedition-manager",
