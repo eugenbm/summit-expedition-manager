@@ -5,7 +5,6 @@
 
 'use strict';
 
-// ✅ Pune config-ul direct:
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyDFf9sGsd2iCadu2zxxaM3zIzH3t1YOzmo",
   authDomain:        "summit-expedition-manager.firebaseapp.com",
@@ -46,34 +45,34 @@ let unsubListeners = [];
    3. FIRESTORE PATH HELPERS
 ══════════════════════════════════════════ */
 
-const userDoc     = ()          => doc(db, 'users', currentUser.uid);
-const expCol      = ()          => collection(db, 'users', currentUser.uid, 'expeditions');
-const expDoc      = (eId)       => doc(db, 'users', currentUser.uid, 'expeditions', eId);
-const memberCol   = (eId)       => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members');
-const memberDoc   = (eId, mId)  => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId);
-const sharedEqCol = (eId)       => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment');
-const sharedEqDoc = (eId, iId)  => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment', iId);
-const equipCol    = (eId, mId)  => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId, 'equipment');
+const userDoc     = ()              => doc(db, 'users', currentUser.uid);
+const expCol      = ()              => collection(db, 'users', currentUser.uid, 'expeditions');
+const expDoc      = (eId)           => doc(db, 'users', currentUser.uid, 'expeditions', eId);
+const memberCol   = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members');
+const memberDoc   = (eId, mId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId);
+const sharedEqCol = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment');
+const sharedEqDoc = (eId, iId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment', iId);
+const equipCol    = (eId, mId)      => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId, 'equipment');
 const equipDoc    = (eId, mId, iId) => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId, 'equipment', iId);
-const expenseCol  = (eId)       => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses');
-const expenseDoc  = (eId, xId)  => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses', xId);
+const expenseCol  = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses');
+const expenseDoc  = (eId, xId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses', xId);
 
 /* ══════════════════════════════════════════
    4. SYNC STATUS UI
 ══════════════════════════════════════════ */
 
 function setSyncing() {
-  $('#syncDot').className   = 'sync-dot syncing';
+  $('#syncDot').className    = 'sync-dot syncing';
   $('#syncLabel').textContent = 'Syncing…';
 }
 
 function setSynced() {
-  $('#syncDot').className   = 'sync-dot';
+  $('#syncDot').className    = 'sync-dot';
   $('#syncLabel').textContent = 'Synced';
 }
 
 function setSyncError() {
-  $('#syncDot').className   = 'sync-dot error';
+  $('#syncDot').className    = 'sync-dot error';
   $('#syncLabel').textContent = 'Offline';
 }
 
@@ -266,6 +265,23 @@ async function deleteMember(expId, memberId) {
 }
 
 /* ══════════════════════════════════════════
+   7b. LOAD ALL REGISTERED USERS
+══════════════════════════════════════════ */
+
+async function getAllRegisteredUsers() {
+  try {
+    const snap  = await getDocs(collection(db, 'allUsers'));
+    const users = [];
+    snap.forEach(d => users.push(d.data()));
+    // Exclude current user from the list
+    return users.filter(u => u.uid !== currentUser.uid);
+  } catch (e) {
+    console.error('Error loading users:', e);
+    return [];
+  }
+}
+
+/* ══════════════════════════════════════════
    8. EQUIPMENT CRUD
 ══════════════════════════════════════════ */
 
@@ -429,8 +445,8 @@ function $$(sel, ctx = document) { return [...ctx.querySelectorAll(sel)]; }
 function el(tag, attrs = {}, ...children) {
   const elem = document.createElement(tag);
   Object.entries(attrs).forEach(([k, v]) => {
-    if (k === 'class')       elem.className = v;
-    else if (k === 'html')   elem.innerHTML = v;
+    if (k === 'class')           elem.className = v;
+    else if (k === 'html')       elem.innerHTML = v;
     else if (k.startsWith('on')) elem.addEventListener(k.slice(2), v);
     else elem.setAttribute(k, v);
   });
@@ -515,8 +531,8 @@ function showAppScreen(user) {
   $('#appWrapper').style.display = 'flex';
 
   const name = user.displayName || user.email.split('@')[0];
-  $('#userName').textContent  = name;
-  $('#userEmail').textContent = user.email;
+  $('#userName').textContent   = name;
+  $('#userEmail').textContent  = user.email;
   $('#userAvatar').textContent = getInitials(name);
 }
 
@@ -556,7 +572,6 @@ async function handleLogin(e) {
 
   try {
     await signInWithEmailAndPassword(auth, email, password);
-    // onAuthStateChanged handles the rest
   } catch (err) {
     showAuthError(mapFirebaseError(err.code));
     setButtonLoading(btn, false);
@@ -589,12 +604,21 @@ async function handleRegister(e) {
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName: name });
-    await setDoc(userDoc(), {
+
+    // ✅ Salvează datele private ale userului
+    await setDoc(doc(db, 'users', cred.user.uid), {
       displayName: name,
       email,
       createdAt: serverTimestamp(),
     });
-    // onAuthStateChanged handles the rest
+
+    // ✅ NOU: Salvează în colecția globală allUsers (citibilă de toți userii autentificați)
+    await setDoc(doc(db, 'allUsers', cred.user.uid), {
+      uid:         cred.user.uid,
+      displayName: name,
+      email,
+    });
+
   } catch (err) {
     showAuthError(mapFirebaseError(err.code));
     setButtonLoading(btn, false);
@@ -653,7 +677,7 @@ function renderCurrentPage() {
   }
 }
 
-function openSidebar()  {
+function openSidebar() {
   $('#sidebar').classList.add('open');
   $('#sidebarOverlay').classList.add('open');
 }
@@ -686,7 +710,7 @@ function renderExpeditions() {
   const empty = $('#expeditionsEmpty');
 
   if (exps.length === 0) {
-    grid.innerHTML  = '';
+    grid.innerHTML      = '';
     empty.style.display = 'block';
     return;
   }
@@ -893,7 +917,7 @@ function openDetailModal(expId) {
           ? `owes ${formatCurrency(Math.abs(b.net))}`
           : 'settled ✓';
       sec.appendChild(el('div', { class: 'balance-row', style: 'margin-bottom:6px;' },
-        el('span', { class: 'balance-name'       }, b.name),
+        el('span', { class: 'balance-name'          }, b.name),
         el('span', { class: `balance-amount ${cls}` }, label)
       ));
     });
@@ -1142,53 +1166,113 @@ function buildEquipItem(expId, memberId, item) {
 
 /* ── Member Modal ── */
 
-function openMemberModal(expId, memberId = null) {
+async function openMemberModal(expId, memberId = null) {
   $('#memberForm').reset();
   $('#memberExpId').value = expId;
 
   if (memberId) {
+    // ── EDIT MODE ──
     const exp    = getLocalExpedition(expId);
     const member = exp?.members.find(m => m.id === memberId);
     if (!member) return;
-    $('#memberModalTitle').textContent  = 'Edit Member';
-    $('#memberId').value                = member.id;
-    $('#memberName').value              = member.name;
-    $('#memberRole').value              = member.role;
-    $('#memberContact').value           = member.contact   || '';
-    $('#memberEmergency').value         = member.emergency || '';
+
+    $('#memberModalTitle').textContent      = 'Edit Member';
+    $('#memberId').value                    = member.id;
+    $('#memberRole').value                  = member.role;
+    $('#memberContact').value               = member.contact   || '';
+    $('#memberEmergency').value             = member.emergency || '';
+
+    // ✅ La EDIT: ascunde dropdown, arată input text cu numele
+    $('#memberUserSelectWrap').style.display = 'none';
+    $('#memberNameWrap').style.display       = 'block';
+    $('#memberName').value                   = member.name;
+
   } else {
-    $('#memberModalTitle').textContent = 'Add Member';
-    $('#memberId').value               = '';
+    // ── ADD MODE ──
+    $('#memberModalTitle').textContent      = 'Add Member';
+    $('#memberId').value                    = '';
+
+    // ✅ La ADD: arată dropdown, ascunde input text
+    $('#memberUserSelectWrap').style.display = 'block';
+    $('#memberNameWrap').style.display       = 'none';
+
+    // Populează dropdown-ul cu userii înregistrați
+    const userSelect = $('#memberUserSelect');
+    userSelect.innerHTML = '<option value="">⏳ Loading users…</option>';
+
+    const users = await getAllRegisteredUsers();
+
+    // Filtrează userii deja adăugați în expediție
+    const exp          = getLocalExpedition(expId);
+    const existingUids = exp?.members.map(m => m.linkedUid).filter(Boolean) || [];
+    const available    = users.filter(u => !existingUids.includes(u.uid));
+
+    if (available.length === 0) {
+      userSelect.innerHTML = '<option value="">No available users found</option>';
+    } else {
+      userSelect.innerHTML = '<option value="">— Select a registered user —</option>';
+      available.forEach(u => {
+        const opt         = document.createElement('option');
+        opt.value         = u.uid;
+        opt.textContent   = `${u.displayName} (${u.email})`;
+        opt.dataset.name  = u.displayName;
+        opt.dataset.email = u.email;
+        userSelect.appendChild(opt);
+      });
+    }
   }
 
   openModal('memberModal');
 }
 
 async function saveMemberForm() {
-  const valid = validateForm([
-    { el: $('#memberName'), test: v => v.length > 0 },
-  ]);
-  if (!valid) { showToast('Member name is required.', 'error'); return; }
+  const expId    = $('#memberExpId').value;
+  const memberId = $('#memberId').value;
+  const isEdit   = !!memberId;
 
-  const expId = $('#memberExpId').value;
-  const id    = $('#memberId').value;
-  const data  = {
-    name:      $('#memberName').value.trim(),
+  let name, linkedUid, linkedEmail;
+
+  if (isEdit) {
+    // ── EDIT: folosim câmpul text ──
+    name = $('#memberName').value.trim();
+    if (!name) {
+      showToast('Member name is required.', 'error');
+      return;
+    }
+  } else {
+    // ── ADD: folosim dropdown-ul ──
+    const userSelect  = $('#memberUserSelect');
+    const selectedOpt = userSelect.options[userSelect.selectedIndex];
+
+    if (!userSelect.value) {
+      showToast('Please select a user.', 'error');
+      return;
+    }
+
+    linkedUid   = userSelect.value;
+    name        = selectedOpt.dataset.name;
+    linkedEmail = selectedOpt.dataset.email;
+  }
+
+  const data = {
+    name,
     role:      $('#memberRole').value,
     contact:   $('#memberContact').value.trim(),
     emergency: $('#memberEmergency').value.trim(),
+    ...(linkedUid   && { linkedUid }),
+    ...(linkedEmail && { linkedEmail }),
   };
 
   const btn = $('#saveMemberBtn');
   setButtonLoading(btn, true);
 
   try {
-    if (id) {
-      await updateMember(expId, id, data);
-      showToast('Member updated!', 'success');
+    if (isEdit) {
+      await updateMember(expId, memberId, data);
+      showToast('Member updated! ✅', 'success');
     } else {
       await addMember(expId, data);
-      showToast('Member added!', 'success');
+      showToast('Member added! 👤', 'success');
     }
     closeModal('memberModal');
   } catch { showToast('Save failed.', 'error'); }
@@ -1479,13 +1563,13 @@ async function saveExpenseForm() {
   }
 
   const data = {
-    title:       $('#expenseTitle').value.trim(),
-    amount:      $('#expenseAmount').value,
-    category:    $('#expenseCategory').value,
-    paidBy:      $('#expensePaidBy').value,
+    title:      $('#expenseTitle').value.trim(),
+    amount:     $('#expenseAmount').value,
+    category:   $('#expenseCategory').value,
+    paidBy:     $('#expensePaidBy').value,
     splitType,
     customSplit,
-    date:        $('#expenseDate').value,
+    date:       $('#expenseDate').value,
   };
 
   const btn = $('#saveExpenseBtn');
@@ -1591,7 +1675,6 @@ async function importData(file) {
 
 /* ══════════════════════════════════════════
    20. AUTH EVENT LISTENERS
-   ✅ Se inițializează IMEDIAT la încărcarea paginii
 ══════════════════════════════════════════ */
 
 function initAuthListeners() {
@@ -1606,19 +1689,13 @@ function initAuthListeners() {
     });
   });
 
-  // Login
   $('#loginForm').addEventListener('submit', handleLogin);
-
-  // Register ← fix-ul principal
   $('#registerForm').addEventListener('submit', handleRegister);
-
-  // Forgot password
   $('#forgotPasswordBtn').addEventListener('click', handleForgotPassword);
 }
 
 /* ══════════════════════════════════════════
    21. APP EVENT LISTENERS
-   ✅ Se inițializează doar după login
 ══════════════════════════════════════════ */
 
 function initAppListeners() {

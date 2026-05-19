@@ -139,7 +139,6 @@
       <header class="topbar">
         <button class="hamburger" id="hamburger" aria-label="Open menu">☰</button>
         <div class="topbar-title" id="topbarTitle">Expeditions</div>
-        <!-- Sync status indicator -->
         <div class="sync-status" id="syncStatus">
           <span class="sync-dot" id="syncDot"></span>
           <span class="sync-label" id="syncLabel">Synced</span>
@@ -242,7 +241,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════
-       MODALS (identice cu versiunea anterioară)
+       MODALS
   ═══════════════════════════════════════════ -->
 
   <!-- Modal: Expedition Form -->
@@ -340,10 +339,21 @@
         <form id="memberForm" novalidate>
           <input type="hidden" id="memberId" />
           <input type="hidden" id="memberExpId" />
-          <div class="form-group">
-            <label for="memberName">Full Name *</label>
-            <input type="text" id="memberName" placeholder="e.g. Jane Doe" required />
+
+          <!-- ✅ Dropdown selectare user — vizibil la ADD -->
+          <div class="form-group" id="memberUserSelectWrap">
+            <label for="memberUserSelect">Select User *</label>
+            <select id="memberUserSelect">
+              <option value="">— Select a registered user —</option>
+            </select>
           </div>
+
+          <!-- ✅ Input text nume — vizibil la EDIT -->
+          <div class="form-group" id="memberNameWrap" style="display:none;">
+            <label for="memberName">Full Name *</label>
+            <input type="text" id="memberName" placeholder="e.g. Jane Doe" />
+          </div>
+
           <div class="form-group">
             <label for="memberRole">Role *</label>
             <select id="memberRole" required>
@@ -497,8 +507,6 @@
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
-  <!-- Firebase SDKs (modular, via CDN) -->
-  
   <script type="module" src="app.js"></script>
 </body>
 </html>
