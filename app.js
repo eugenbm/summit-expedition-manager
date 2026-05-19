@@ -31,6 +31,7 @@ import { getFirestore, collection, doc,
 
 const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth        = getAuth(firebaseApp);
+auth.settings.appVerificationDisabledForTesting = true;
 const db          = getFirestore(firebaseApp);
 
 /* ══════════════════════════════════════════
