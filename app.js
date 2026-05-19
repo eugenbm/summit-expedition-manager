@@ -22,8 +22,9 @@ import { getAuth, createUserWithEmailAndPassword,
 import { getFirestore, collection, doc,
          addDoc, setDoc, getDoc, getDocs,
          updateDoc, deleteDoc, onSnapshot,
-         query, orderBy, serverTimestamp,
-         writeBatch }                             from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+         query, orderBy, where,
+         serverTimestamp, writeBatch,
+         arrayUnion, arrayRemove }                from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 /* ══════════════════════════════════════════
    1. FIREBASE INIT
@@ -31,7 +32,6 @@ import { getFirestore, collection, doc,
 
 const firebaseApp = initializeApp(FIREBASE_CONFIG);
 const auth        = getAuth(firebaseApp);
-auth.settings.appVerificationDisabledForTesting = true;
 const db          = getFirestore(firebaseApp);
 
 /* ══════════════════════════════════════════
@@ -39,7 +39,7 @@ const db          = getFirestore(firebaseApp);
 ══════════════════════════════════════════ */
 
 let currentUser    = null;
-let currentRole    = 'user'; // 'admin' | 'user'
+let currentRole    = 'user';
 let expeditions    = [];
 let unsubListeners = [];
 
@@ -51,15 +51,12 @@ function isAdmin() {
   return currentRole === 'admin';
 }
 
-function canToggleEquip(memberId) {
-  // Admin poate bifa orice
+function canToggleEquip(memberId, expId) {
   if (isAdmin()) return true;
-  // Userii pot bifa echipamentul shared sau al lor
   if (memberId === 'shared') return true;
-  const exp = expeditions.find(e =>
-    e.members.some(m => m.id === memberId && m.linkedUid === currentUser.uid)
-  );
-  return !!exp;
+  const exp = expeditions.find(e => e.id === expId);
+  if (!exp) return false;
+  return exp.members.some(m => m.id === memberId && m.linkedUid === currentUser.uid);
 }
 
 async function fetchUserRole(uid) {
@@ -73,20 +70,19 @@ async function fetchUserRole(uid) {
 }
 
 /* ══════════════════════════════════════════
-   3. FIRESTORE PATH HELPERS
+   3. FIRESTORE PATH HELPERS — colecție globală
 ══════════════════════════════════════════ */
 
-const userDoc     = ()              => doc(db, 'users', currentUser.uid);
-const expCol      = ()              => collection(db, 'users', currentUser.uid, 'expeditions');
-const expDoc      = (eId)           => doc(db, 'users', currentUser.uid, 'expeditions', eId);
-const memberCol   = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members');
-const memberDoc   = (eId, mId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId);
-const sharedEqCol = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment');
-const sharedEqDoc = (eId, iId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'sharedEquipment', iId);
-const equipCol    = (eId, mId)      => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId, 'equipment');
-const equipDoc    = (eId, mId, iId) => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'members', mId, 'equipment', iId);
-const expenseCol  = (eId)           => collection(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses');
-const expenseDoc  = (eId, xId)      => doc(db, 'users', currentUser.uid, 'expeditions', eId, 'expenses', xId);
+const expCol      = ()              => collection(db, 'expeditions');
+const expDoc      = (eId)           => doc(db, 'expeditions', eId);
+const memberCol   = (eId)           => collection(db, 'expeditions', eId, 'members');
+const memberDoc   = (eId, mId)      => doc(db, 'expeditions', eId, 'members', mId);
+const sharedEqCol = (eId)           => collection(db, 'expeditions', eId, 'sharedEquipment');
+const sharedEqDoc = (eId, iId)      => doc(db, 'expeditions', eId, 'sharedEquipment', iId);
+const equipCol    = (eId, mId)      => collection(db, 'expeditions', eId, 'members', mId, 'equipment');
+const equipDoc    = (eId, mId, iId) => doc(db, 'expeditions', eId, 'members', mId, 'equipment', iId);
+const expenseCol  = (eId)           => collection(db, 'expeditions', eId, 'expenses');
+const expenseDoc  = (eId, xId)      => doc(db, 'expeditions', eId, 'expenses', xId);
 
 /* ══════════════════════════════════════════
    4. SYNC STATUS UI
@@ -114,15 +110,21 @@ function setSyncError() {
 async function startRealtimeSync() {
   unsubListeners.forEach(u => u());
   unsubListeners = [];
-
   showLoading(true);
 
-  const q = query(expCol(), orderBy('createdAt', 'desc'));
+  // Adminul vede toate expedițiile
+  // Userii văd doar expedițiile unde sunt în memberUIDs
+  const q = isAdmin()
+    ? query(expCol(), orderBy('createdAt', 'desc'))
+    : query(
+        expCol(),
+        where('memberUIDs', 'array-contains', currentUser.uid),
+        orderBy('createdAt', 'desc')
+      );
 
   const unsub = onSnapshot(q,
     async (snapshot) => {
       setSynced();
-
       const newExps = [];
       for (const docSnap of snapshot.docs) {
         const exp = { id: docSnap.id, ...docSnap.data() };
@@ -134,7 +136,6 @@ async function startRealtimeSync() {
         exp.expenses        = await loadSubCollection(expenseCol(exp.id));
         newExps.push(exp);
       }
-
       expeditions = newExps;
       showLoading(false);
       renderCurrentPage();
@@ -175,9 +176,11 @@ async function addExpedition(data) {
   try {
     const docRef = await addDoc(expCol(), {
       ...data,
-      budget:    data.budget ? parseFloat(data.budget) : null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      budget:     data.budget ? parseFloat(data.budget) : null,
+      memberUIDs: [currentUser.uid],   // adminul e mereu în listă
+      createdBy:  currentUser.uid,
+      createdAt:  serverTimestamp(),
+      updatedAt:  serverTimestamp(),
     });
     setSynced();
     return docRef.id;
@@ -252,6 +255,14 @@ async function addMember(expId, data) {
       ...data,
       createdAt: serverTimestamp(),
     });
+
+    // ✅ Adaugă UID-ul în memberUIDs → userul vede expediția
+    if (data.linkedUid) {
+      await updateDoc(expDoc(expId), {
+        memberUIDs: arrayUnion(data.linkedUid),
+      });
+    }
+
     setSynced();
     return docRef.id;
   } catch (e) {
@@ -288,6 +299,14 @@ async function deleteMember(expId, memberId) {
     }
     batch.delete(memberDoc(expId, memberId));
     await batch.commit();
+
+    // ✅ Elimină UID-ul din memberUIDs → userul nu mai vede expediția
+    if (member?.linkedUid) {
+      await updateDoc(expDoc(expId), {
+        memberUIDs: arrayRemove(member.linkedUid),
+      });
+    }
+
     setSynced();
   } catch (e) {
     setSyncError();
@@ -552,12 +571,10 @@ function setButtonLoading(btn, loading) {
 ══════════════════════════════════════════ */
 
 function applyRoleUI() {
-  // Arată/ascunde elementele cu clasa admin-only
-  $$('.admin-only').forEach(el => {
-    el.classList.toggle('hidden', !isAdmin());
+  $$('.admin-only').forEach(elem => {
+    elem.classList.toggle('hidden', !isAdmin());
   });
 
-  // Badge rol în sidebar
   const badge = $('#userRoleBadge');
   if (badge) {
     badge.textContent = isAdmin() ? '👑 Admin' : '👤 User';
@@ -653,7 +670,6 @@ async function handleRegister(e) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName: name });
 
-    // Salvează datele userului (fără rol — implicit 'user')
     await setDoc(doc(db, 'users', cred.user.uid), {
       displayName: name,
       email,
@@ -661,7 +677,6 @@ async function handleRegister(e) {
       createdAt: serverTimestamp(),
     });
 
-    // Salvează în colecția globală allUsers
     await setDoc(doc(db, 'allUsers', cred.user.uid), {
       uid:         cred.user.uid,
       displayName: name,
@@ -776,7 +791,6 @@ function buildExpeditionCard(exp) {
   return el('div', { class: `exp-card ${exp.status}`, onclick: () => openDetailModal(exp.id) },
     el('div', { class: 'card-header' },
       el('div', { class: 'card-title' }, exp.name),
-      // ✅ Butoanele Edit/Delete — doar admin
       isAdmin()
         ? el('div', { class: 'card-actions' },
             el('button', { class: 'btn-icon', title: 'Edit',
@@ -977,7 +991,6 @@ function openDetailModal(expId) {
     body.appendChild(sec);
   }
 
-  // ✅ Edit/Delete în detail modal — doar admin
   const detailEditBtn   = $('#detailEditBtn');
   const detailDeleteBtn = $('#detailDeleteBtn');
 
@@ -1084,7 +1097,6 @@ function renderMembersPage() {
   if (savedVal) select.value = savedVal;
   currentMemberExpId = select.value;
 
-  // ✅ Butonul Add Member — doar admin
   $('#addMemberBtn').style.display = (currentMemberExpId && isAdmin()) ? 'inline-flex' : 'none';
 
   if (currentMemberExpId) {
@@ -1106,11 +1118,9 @@ function renderMembersContent(expId) {
   const container = $('#membersContent');
   container.innerHTML = '';
 
-  // Shared equipment section
   const sharedSection = el('div', { class: 'shared-equip-section' },
     el('div', { class: 'section-title' },
       el('span', {}, '🎒 Shared Expedition Equipment'),
-      // ✅ Add shared equipment — doar admin
       isAdmin()
         ? el('button', { class: 'btn btn-sm btn-ghost',
             onclick: () => openEquipmentModal(expId, 'shared')
@@ -1125,7 +1135,10 @@ function renderMembersContent(expId) {
     );
   } else {
     const list = el('div', { class: 'equip-list' });
-    exp.sharedEquipment.forEach(item => list.appendChild(buildEquipItem(expId, 'shared', item)));
+    // ✅ shared equipment — toți pot bifa
+    exp.sharedEquipment.forEach(item =>
+      list.appendChild(buildEquipItem(expId, 'shared', item, true))
+    );
     sharedSection.appendChild(list);
   }
   container.appendChild(sharedSection);
@@ -1152,7 +1165,6 @@ function buildMemberCard(exp, member) {
         el('div', { class: 'member-name' }, member.name),
         el('div', { class: 'member-role' }, capitalize(member.role))
       ),
-      // ✅ Edit/Delete member — doar admin
       isAdmin()
         ? el('div', { class: 'member-actions' },
             el('button', { class: 'btn-icon', title: 'Edit',
@@ -1178,13 +1190,12 @@ function buildMemberCard(exp, member) {
     card.appendChild(contactDiv);
   }
 
-  // ✅ Verifică dacă userul curent poate bifa echipamentul acestui membru
-  const canToggle = isAdmin() || member.linkedUid === currentUser.uid;
+  // ✅ Userul poate bifa doar echipamentul lui
+  const canToggle = canToggleEquip(member.id, exp.id);
 
   const equipSec = el('div', { class: 'equip-section' },
     el('div', { class: 'equip-section-title' },
       el('span', {}, `🎒 Equipment (${member.equipment.length})`),
-      // ✅ Add equipment — doar admin
       isAdmin()
         ? el('button', { class: 'btn btn-sm btn-ghost',
             onclick: () => openEquipmentModal(exp.id, member.id)
@@ -1212,7 +1223,7 @@ function buildEquipItem(expId, memberId, item, canToggle = true) {
 
   const checkbox = el('input', { type: 'checkbox' });
   checkbox.checked  = item.packed;
-  checkbox.disabled = !canToggle; // ✅ Dezactivat dacă nu are voie
+  checkbox.disabled = !canToggle;
   checkbox.addEventListener('change', async () => {
     if (!canToggle) return;
     await toggleEquipmentPacked(expId, memberId, item.id, item.packed);
@@ -1221,7 +1232,6 @@ function buildEquipItem(expId, memberId, item, canToggle = true) {
   const nameSpan = el('span', { class: 'equip-item-name' }, item.name);
   const catBadge = el('span', { class: 'equip-item-cat'  }, capitalize(item.category));
 
-  // ✅ Edit/Delete equipment — doar admin
   const actions = isAdmin()
     ? el('div', { class: 'equip-item-actions' },
         el('button', { class: 'btn-icon', title: 'Edit', style: 'font-size:.75rem;',
@@ -1419,7 +1429,6 @@ function renderCostsPage() {
   if (savedVal) select.value = savedVal;
   currentCostExpId = select.value;
 
-  // ✅ Butonul Add Expense — doar admin
   $('#addExpenseBtn').style.display = (currentCostExpId && isAdmin()) ? 'inline-flex' : 'none';
 
   if (currentCostExpId) {
@@ -1442,13 +1451,13 @@ function renderCostsContent(expId) {
   const container = $('#costsContent');
   container.innerHTML = '';
 
-  // Summary cards
   const summary = el('div', { class: 'costs-summary' });
   [
     { label: 'Total Spent', value: formatCurrency(costs.total), cls: '' },
     { label: 'Budget',      value: costs.budget ? formatCurrency(costs.budget) : '—', cls: '' },
-    { label: 'Remaining',   value: costs.remaining !== null ? formatCurrency(costs.remaining) : '—',
-      cls: costs.remaining !== null ? (costs.remaining >= 0 ? 'positive' : 'negative') : '' },
+    { label: 'Remaining',
+      value: costs.remaining !== null ? formatCurrency(costs.remaining) : '—',
+      cls:   costs.remaining !== null ? (costs.remaining >= 0 ? 'positive' : 'negative') : '' },
     { label: 'Expenses',    value: exp.expenses.length, cls: '' },
   ].forEach(({ label, value, cls }) => {
     summary.appendChild(el('div', { class: 'summary-card' },
@@ -1486,7 +1495,6 @@ function renderCostsContent(expId) {
         el('th', {}, 'Paid By'),
         el('th', {}, 'Split'),
         el('th', {}, 'Date'),
-        // ✅ Coloana Actions — doar admin
         isAdmin() ? el('th', {}, 'Actions') : null,
       )
     ));
@@ -1504,7 +1512,6 @@ function renderCostsContent(expId) {
         el('td', {}, paidByName),
         el('td', {}, capitalize(expense.splitType)),
         el('td', {}, formatDate(expense.date)),
-        // ✅ Butoane edit/delete — doar admin
         isAdmin()
           ? el('td', {},
               el('button', { class: 'btn-icon', title: 'Edit',
@@ -1701,7 +1708,7 @@ async function importData(file) {
           try {
             for (const exp of exps) {
               const { members = [], sharedEquipment = [], expenses = [],
-                      id, createdAt, updatedAt, ...expData } = exp;
+                      id, createdAt, updatedAt, memberUIDs, createdBy, ...expData } = exp;
               const newExpId = await addExpedition(expData);
 
               for (const m of members) {
@@ -1790,7 +1797,6 @@ function initAppListeners() {
     }
   });
 
-  // ✅ Butoanele New Expedition — doar admin le poate folosi
   $('#newExpeditionBtn').addEventListener('click', () => {
     if (isAdmin()) openExpeditionModal();
   });
@@ -1847,7 +1853,6 @@ function initAppListeners() {
     }
   });
 
-  // ✅ Export/Import — doar admin
   $('#exportBtn').addEventListener('click', () => {
     if (isAdmin()) exportData();
     else showToast('Only admins can export data.', 'error');
@@ -1871,8 +1876,6 @@ initAuthListeners();
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
-
-    // ✅ Fetch rol din Firestore
     currentRole = await fetchUserRole(user.uid);
 
     showAppScreen(user);
