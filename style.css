@@ -880,3 +880,27 @@ select:focus { border-color: var(--accent); }
 .flex  { display: flex; }
 .flex-between { display: flex; justify-content: space-between; align-items: center; }
 .gap-8 { gap: 8px; }
+/* Role badge */
+.role-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  margin-top: 4px;
+  display: inline-block;
+}
+.role-badge.admin {
+  background: rgba(255, 200, 0, 0.2);
+  color: #ffc800;
+  border: 1px solid rgba(255, 200, 0, 0.4);
+}
+.role-badge.user {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+/* Hidden utility */
+.hidden {
+  display: none !important;
+}

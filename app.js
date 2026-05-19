@@ -39,8 +39,38 @@ const db          = getFirestore(firebaseApp);
 ══════════════════════════════════════════ */
 
 let currentUser    = null;
+let currentRole    = 'user'; // 'admin' | 'user'
 let expeditions    = [];
 let unsubListeners = [];
+
+/* ══════════════════════════════════════════
+   2b. ROLE HELPERS
+══════════════════════════════════════════ */
+
+function isAdmin() {
+  return currentRole === 'admin';
+}
+
+function canToggleEquip(memberId) {
+  // Admin poate bifa orice
+  if (isAdmin()) return true;
+  // Userii pot bifa echipamentul shared sau al lor
+  if (memberId === 'shared') return true;
+  const exp = expeditions.find(e =>
+    e.members.some(m => m.id === memberId && m.linkedUid === currentUser.uid)
+  );
+  return !!exp;
+}
+
+async function fetchUserRole(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (snap.exists() && snap.data().role === 'admin') return 'admin';
+    return 'user';
+  } catch {
+    return 'user';
+  }
+}
 
 /* ══════════════════════════════════════════
    3. FIRESTORE PATH HELPERS
@@ -63,17 +93,17 @@ const expenseDoc  = (eId, xId)      => doc(db, 'users', currentUser.uid, 'expedi
 ══════════════════════════════════════════ */
 
 function setSyncing() {
-  $('#syncDot').className    = 'sync-dot syncing';
+  $('#syncDot').className     = 'sync-dot syncing';
   $('#syncLabel').textContent = 'Syncing…';
 }
 
 function setSynced() {
-  $('#syncDot').className    = 'sync-dot';
+  $('#syncDot').className     = 'sync-dot';
   $('#syncLabel').textContent = 'Synced';
 }
 
 function setSyncError() {
-  $('#syncDot').className    = 'sync-dot error';
+  $('#syncDot').className     = 'sync-dot error';
   $('#syncLabel').textContent = 'Offline';
 }
 
@@ -274,7 +304,6 @@ async function getAllRegisteredUsers() {
     const snap  = await getDocs(collection(db, 'allUsers'));
     const users = [];
     snap.forEach(d => users.push(d.data()));
-    // Exclude current user from the list
     return users.filter(u => u.uid !== currentUser.uid);
   } catch (e) {
     console.error('Error loading users:', e);
@@ -519,6 +548,24 @@ function setButtonLoading(btn, loading) {
 }
 
 /* ══════════════════════════════════════════
+   11b. APPLY ROLE-BASED UI
+══════════════════════════════════════════ */
+
+function applyRoleUI() {
+  // Arată/ascunde elementele cu clasa admin-only
+  $$('.admin-only').forEach(el => {
+    el.classList.toggle('hidden', !isAdmin());
+  });
+
+  // Badge rol în sidebar
+  const badge = $('#userRoleBadge');
+  if (badge) {
+    badge.textContent = isAdmin() ? '👑 Admin' : '👤 User';
+    badge.className   = isAdmin() ? 'role-badge admin' : 'role-badge user';
+  }
+}
+
+/* ══════════════════════════════════════════
    12. AUTH FUNCTIONS
 ══════════════════════════════════════════ */
 
@@ -606,14 +653,15 @@ async function handleRegister(e) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(cred.user, { displayName: name });
 
-    // ✅ Salvează datele private ale userului
+    // Salvează datele userului (fără rol — implicit 'user')
     await setDoc(doc(db, 'users', cred.user.uid), {
       displayName: name,
       email,
+      role:      'user',
       createdAt: serverTimestamp(),
     });
 
-    // ✅ NOU: Salvează în colecția globală allUsers (citibilă de toți userii autentificați)
+    // Salvează în colecția globală allUsers
     await setDoc(doc(db, 'allUsers', cred.user.uid), {
       uid:         cred.user.uid,
       displayName: name,
@@ -644,6 +692,7 @@ async function handleSignOut() {
   unsubListeners.forEach(u => u());
   unsubListeners = [];
   expeditions    = [];
+  currentRole    = 'user';
   await signOut(auth);
 }
 
@@ -727,22 +776,25 @@ function buildExpeditionCard(exp) {
   return el('div', { class: `exp-card ${exp.status}`, onclick: () => openDetailModal(exp.id) },
     el('div', { class: 'card-header' },
       el('div', { class: 'card-title' }, exp.name),
-      el('div', { class: 'card-actions' },
-        el('button', { class: 'btn-icon', title: 'Edit',
-          onclick: (e) => { e.stopPropagation(); openExpeditionModal(exp.id); }
-        }, '✏️'),
-        el('button', { class: 'btn-icon', title: 'Delete',
-          onclick: (e) => {
-            e.stopPropagation();
-            confirmAction(`Delete "${exp.name}"? This cannot be undone.`, async () => {
-              try {
-                await deleteExpedition(exp.id);
-                showToast('Expedition deleted.', 'info');
-              } catch { showToast('Delete failed.', 'error'); }
-            });
-          }
-        }, '🗑️'),
-      )
+      // ✅ Butoanele Edit/Delete — doar admin
+      isAdmin()
+        ? el('div', { class: 'card-actions' },
+            el('button', { class: 'btn-icon', title: 'Edit',
+              onclick: (e) => { e.stopPropagation(); openExpeditionModal(exp.id); }
+            }, '✏️'),
+            el('button', { class: 'btn-icon', title: 'Delete',
+              onclick: (e) => {
+                e.stopPropagation();
+                confirmAction(`Delete "${exp.name}"? This cannot be undone.`, async () => {
+                  try {
+                    await deleteExpedition(exp.id);
+                    showToast('Expedition deleted.', 'info');
+                  } catch { showToast('Delete failed.', 'error'); }
+                });
+              }
+            }, '🗑️'),
+          )
+        : null
     ),
     el('div', { class: 'card-location' }, '📍 ', exp.location || '—'),
     el('div', { class: 'card-dates'    }, '📆 ', formatDate(exp.startDate), ' → ', formatDate(exp.endDate)),
@@ -925,8 +977,15 @@ function openDetailModal(expId) {
     body.appendChild(sec);
   }
 
-  $('#detailEditBtn').onclick   = () => { closeModal('detailModal'); openExpeditionModal(expId); };
-  $('#detailDeleteBtn').onclick = () => {
+  // ✅ Edit/Delete în detail modal — doar admin
+  const detailEditBtn   = $('#detailEditBtn');
+  const detailDeleteBtn = $('#detailDeleteBtn');
+
+  detailEditBtn.style.display   = isAdmin() ? 'inline-flex' : 'none';
+  detailDeleteBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
+
+  detailEditBtn.onclick   = () => { closeModal('detailModal'); openExpeditionModal(expId); };
+  detailDeleteBtn.onclick = () => {
     closeModal('detailModal');
     confirmAction(`Delete "${exp.name}"? This cannot be undone.`, async () => {
       try {
@@ -1025,11 +1084,12 @@ function renderMembersPage() {
   if (savedVal) select.value = savedVal;
   currentMemberExpId = select.value;
 
+  // ✅ Butonul Add Member — doar admin
+  $('#addMemberBtn').style.display = (currentMemberExpId && isAdmin()) ? 'inline-flex' : 'none';
+
   if (currentMemberExpId) {
-    $('#addMemberBtn').style.display = 'inline-flex';
     renderMembersContent(currentMemberExpId);
   } else {
-    $('#addMemberBtn').style.display = 'none';
     $('#membersContent').innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">👥</div>
@@ -1050,9 +1110,12 @@ function renderMembersContent(expId) {
   const sharedSection = el('div', { class: 'shared-equip-section' },
     el('div', { class: 'section-title' },
       el('span', {}, '🎒 Shared Expedition Equipment'),
-      el('button', { class: 'btn btn-sm btn-ghost',
-        onclick: () => openEquipmentModal(expId, 'shared')
-      }, '+ Add Item')
+      // ✅ Add shared equipment — doar admin
+      isAdmin()
+        ? el('button', { class: 'btn btn-sm btn-ghost',
+            onclick: () => openEquipmentModal(expId, 'shared')
+          }, '+ Add Item')
+        : null
     )
   );
 
@@ -1089,19 +1152,22 @@ function buildMemberCard(exp, member) {
         el('div', { class: 'member-name' }, member.name),
         el('div', { class: 'member-role' }, capitalize(member.role))
       ),
-      el('div', { class: 'member-actions' },
-        el('button', { class: 'btn-icon', title: 'Edit',
-          onclick: () => openMemberModal(exp.id, member.id)
-        }, '✏️'),
-        el('button', { class: 'btn-icon', title: 'Delete',
-          onclick: () => confirmAction(`Remove ${member.name}?`, async () => {
-            try {
-              await deleteMember(exp.id, member.id);
-              showToast('Member removed.', 'info');
-            } catch { showToast('Delete failed.', 'error'); }
-          })
-        }, '🗑️')
-      )
+      // ✅ Edit/Delete member — doar admin
+      isAdmin()
+        ? el('div', { class: 'member-actions' },
+            el('button', { class: 'btn-icon', title: 'Edit',
+              onclick: () => openMemberModal(exp.id, member.id)
+            }, '✏️'),
+            el('button', { class: 'btn-icon', title: 'Delete',
+              onclick: () => confirmAction(`Remove ${member.name}?`, async () => {
+                try {
+                  await deleteMember(exp.id, member.id);
+                  showToast('Member removed.', 'info');
+                } catch { showToast('Delete failed.', 'error'); }
+              })
+            }, '🗑️')
+          )
+        : null
     )
   );
 
@@ -1112,18 +1178,26 @@ function buildMemberCard(exp, member) {
     card.appendChild(contactDiv);
   }
 
+  // ✅ Verifică dacă userul curent poate bifa echipamentul acestui membru
+  const canToggle = isAdmin() || member.linkedUid === currentUser.uid;
+
   const equipSec = el('div', { class: 'equip-section' },
     el('div', { class: 'equip-section-title' },
       el('span', {}, `🎒 Equipment (${member.equipment.length})`),
-      el('button', { class: 'btn btn-sm btn-ghost',
-        onclick: () => openEquipmentModal(exp.id, member.id)
-      }, '+ Add')
+      // ✅ Add equipment — doar admin
+      isAdmin()
+        ? el('button', { class: 'btn btn-sm btn-ghost',
+            onclick: () => openEquipmentModal(exp.id, member.id)
+          }, '+ Add')
+        : null
     )
   );
 
   if (member.equipment.length > 0) {
     const list = el('div', { class: 'equip-list' });
-    member.equipment.forEach(item => list.appendChild(buildEquipItem(exp.id, member.id, item)));
+    member.equipment.forEach(item =>
+      list.appendChild(buildEquipItem(exp.id, member.id, item, canToggle))
+    );
     equipSec.appendChild(list);
   } else {
     equipSec.appendChild(el('p', { class: 'text-muted', style: 'font-size:.78rem;' }, 'No items yet.'));
@@ -1133,35 +1207,42 @@ function buildMemberCard(exp, member) {
   return card;
 }
 
-function buildEquipItem(expId, memberId, item) {
+function buildEquipItem(expId, memberId, item, canToggle = true) {
   const row = el('div', { class: `equip-item${item.packed ? ' packed' : ''}` });
 
   const checkbox = el('input', { type: 'checkbox' });
-  checkbox.checked = item.packed;
+  checkbox.checked  = item.packed;
+  checkbox.disabled = !canToggle; // ✅ Dezactivat dacă nu are voie
   checkbox.addEventListener('change', async () => {
+    if (!canToggle) return;
     await toggleEquipmentPacked(expId, memberId, item.id, item.packed);
   });
 
   const nameSpan = el('span', { class: 'equip-item-name' }, item.name);
   const catBadge = el('span', { class: 'equip-item-cat'  }, capitalize(item.category));
-  const actions  = el('div',  { class: 'equip-item-actions' },
-    el('button', { class: 'btn-icon', title: 'Edit', style: 'font-size:.75rem;',
-      onclick: () => openEquipmentModal(expId, memberId, item.id)
-    }, '✏️'),
-    el('button', { class: 'btn-icon', title: 'Delete', style: 'font-size:.75rem;',
-      onclick: () => confirmAction(`Delete "${item.name}"?`, async () => {
-        try {
-          await deleteEquipment(expId, memberId, item.id);
-        } catch { showToast('Delete failed.', 'error'); }
-      })
-    }, '🗑️')
-  );
+
+  // ✅ Edit/Delete equipment — doar admin
+  const actions = isAdmin()
+    ? el('div', { class: 'equip-item-actions' },
+        el('button', { class: 'btn-icon', title: 'Edit', style: 'font-size:.75rem;',
+          onclick: () => openEquipmentModal(expId, memberId, item.id)
+        }, '✏️'),
+        el('button', { class: 'btn-icon', title: 'Delete', style: 'font-size:.75rem;',
+          onclick: () => confirmAction(`Delete "${item.name}"?`, async () => {
+            try {
+              await deleteEquipment(expId, memberId, item.id);
+            } catch { showToast('Delete failed.', 'error'); }
+          })
+        }, '🗑️')
+      )
+    : null;
 
   if (item.weight) {
     row.appendChild(el('span', { class: 'text-muted', style: 'font-size:.7rem;' }, `${item.weight}kg`));
   }
 
-  row.append(checkbox, nameSpan, catBadge, actions);
+  row.append(checkbox, nameSpan, catBadge);
+  if (actions) row.appendChild(actions);
   return row;
 }
 
@@ -1172,38 +1253,28 @@ async function openMemberModal(expId, memberId = null) {
   $('#memberExpId').value = expId;
 
   if (memberId) {
-    // ── EDIT MODE ──
     const exp    = getLocalExpedition(expId);
     const member = exp?.members.find(m => m.id === memberId);
     if (!member) return;
 
-    $('#memberModalTitle').textContent      = 'Edit Member';
-    $('#memberId').value                    = member.id;
-    $('#memberRole').value                  = member.role;
-    $('#memberContact').value               = member.contact   || '';
-    $('#memberEmergency').value             = member.emergency || '';
-
-    // ✅ La EDIT: ascunde dropdown, arată input text cu numele
+    $('#memberModalTitle').textContent       = 'Edit Member';
+    $('#memberId').value                     = member.id;
+    $('#memberRole').value                   = member.role;
+    $('#memberContact').value                = member.contact   || '';
+    $('#memberEmergency').value              = member.emergency || '';
     $('#memberUserSelectWrap').style.display = 'none';
     $('#memberNameWrap').style.display       = 'block';
     $('#memberName').value                   = member.name;
-
   } else {
-    // ── ADD MODE ──
-    $('#memberModalTitle').textContent      = 'Add Member';
-    $('#memberId').value                    = '';
-
-    // ✅ La ADD: arată dropdown, ascunde input text
+    $('#memberModalTitle').textContent       = 'Add Member';
+    $('#memberId').value                     = '';
     $('#memberUserSelectWrap').style.display = 'block';
     $('#memberNameWrap').style.display       = 'none';
 
-    // Populează dropdown-ul cu userii înregistrați
     const userSelect = $('#memberUserSelect');
     userSelect.innerHTML = '<option value="">⏳ Loading users…</option>';
 
-    const users = await getAllRegisteredUsers();
-
-    // Filtrează userii deja adăugați în expediție
+    const users        = await getAllRegisteredUsers();
     const exp          = getLocalExpedition(expId);
     const existingUids = exp?.members.map(m => m.linkedUid).filter(Boolean) || [];
     const available    = users.filter(u => !existingUids.includes(u.uid));
@@ -1234,22 +1305,12 @@ async function saveMemberForm() {
   let name, linkedUid, linkedEmail;
 
   if (isEdit) {
-    // ── EDIT: folosim câmpul text ──
     name = $('#memberName').value.trim();
-    if (!name) {
-      showToast('Member name is required.', 'error');
-      return;
-    }
+    if (!name) { showToast('Member name is required.', 'error'); return; }
   } else {
-    // ── ADD: folosim dropdown-ul ──
     const userSelect  = $('#memberUserSelect');
     const selectedOpt = userSelect.options[userSelect.selectedIndex];
-
-    if (!userSelect.value) {
-      showToast('Please select a user.', 'error');
-      return;
-    }
-
+    if (!userSelect.value) { showToast('Please select a user.', 'error'); return; }
     linkedUid   = userSelect.value;
     name        = selectedOpt.dataset.name;
     linkedEmail = selectedOpt.dataset.email;
@@ -1358,11 +1419,12 @@ function renderCostsPage() {
   if (savedVal) select.value = savedVal;
   currentCostExpId = select.value;
 
+  // ✅ Butonul Add Expense — doar admin
+  $('#addExpenseBtn').style.display = (currentCostExpId && isAdmin()) ? 'inline-flex' : 'none';
+
   if (currentCostExpId) {
-    $('#addExpenseBtn').style.display = 'inline-flex';
     renderCostsContent(currentCostExpId);
   } else {
-    $('#addExpenseBtn').style.display = 'none';
     $('#costsContent').innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">💰</div>
@@ -1396,7 +1458,6 @@ function renderCostsContent(expId) {
   });
   container.appendChild(summary);
 
-  // Budget progress bar
   if (costs.budget && costs.total > 0) {
     const pct = Math.min((costs.total / costs.budget) * 100, 100);
     container.appendChild(el('div', { class: 'progress-bar-wrap', style: 'margin-bottom:24px;' },
@@ -1407,7 +1468,6 @@ function renderCostsContent(expId) {
     ));
   }
 
-  // Expenses table
   if (exp.expenses.length === 0) {
     container.appendChild(el('div', { class: 'empty-state' },
       el('div', { class: 'empty-icon' }, '🧾'),
@@ -1426,7 +1486,8 @@ function renderCostsContent(expId) {
         el('th', {}, 'Paid By'),
         el('th', {}, 'Split'),
         el('th', {}, 'Date'),
-        el('th', {}, 'Actions'),
+        // ✅ Coloana Actions — doar admin
+        isAdmin() ? el('th', {}, 'Actions') : null,
       )
     ));
 
@@ -1443,19 +1504,22 @@ function renderCostsContent(expId) {
         el('td', {}, paidByName),
         el('td', {}, capitalize(expense.splitType)),
         el('td', {}, formatDate(expense.date)),
-        el('td', {},
-          el('button', { class: 'btn-icon', title: 'Edit',
-            onclick: () => openExpenseModal(expId, expense.id)
-          }, '✏️'),
-          el('button', { class: 'btn-icon', title: 'Delete',
-            onclick: () => confirmAction(`Delete "${expense.title}"?`, async () => {
-              try {
-                await deleteExpense(expId, expense.id);
-                showToast('Expense deleted.', 'info');
-              } catch { showToast('Delete failed.', 'error'); }
-            })
-          }, '🗑️')
-        )
+        // ✅ Butoane edit/delete — doar admin
+        isAdmin()
+          ? el('td', {},
+              el('button', { class: 'btn-icon', title: 'Edit',
+                onclick: () => openExpenseModal(expId, expense.id)
+              }, '✏️'),
+              el('button', { class: 'btn-icon', title: 'Delete',
+                onclick: () => confirmAction(`Delete "${expense.title}"?`, async () => {
+                  try {
+                    await deleteExpense(expId, expense.id);
+                    showToast('Expense deleted.', 'info');
+                  } catch { showToast('Delete failed.', 'error'); }
+                })
+              }, '🗑️')
+            )
+          : null,
       ));
     });
 
@@ -1464,7 +1528,6 @@ function renderCostsContent(expId) {
     container.appendChild(tableWrap);
   }
 
-  // Member balances
   if (costs.memberBalances.length > 0) {
     const balSec = el('div', { class: 'balance-section' },
       el('div', { class: 'section-title' }, '⚖️ Member Balances')
@@ -1497,7 +1560,6 @@ function openExpenseModal(expId, expenseId = null) {
   $('#expenseExpId').value = expId;
   $('#customSplitContainer').style.display = 'none';
 
-  // Populate "Paid By" dropdown
   const paidBySelect = $('#expensePaidBy');
   paidBySelect.innerHTML = '<option value="group">Group / Shared</option>';
   exp.members.forEach(m =>
@@ -1679,7 +1741,6 @@ async function importData(file) {
 ══════════════════════════════════════════ */
 
 function initAuthListeners() {
-  // Tab switcher Sign In / Register
   $$('.auth-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       $$('.auth-tab').forEach(t => t.classList.remove('active'));
@@ -1700,10 +1761,8 @@ function initAuthListeners() {
 ══════════════════════════════════════════ */
 
 function initAppListeners() {
-  // Sign out
   $('#signOutBtn').addEventListener('click', handleSignOut);
 
-  // Sidebar navigation
   $$('.nav-item').forEach(item => {
     item.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1711,39 +1770,38 @@ function initAppListeners() {
     });
   });
 
-  // Mobile sidebar
   $('#hamburger').addEventListener('click', openSidebar);
   $('#sidebarClose').addEventListener('click', closeSidebar);
   $('#sidebarOverlay').addEventListener('click', closeSidebar);
 
-  // Close modals via [data-modal] buttons
   $$('[data-modal]').forEach(btn => {
     btn.addEventListener('click', () => closeModal(btn.dataset.modal));
   });
 
-  // Click outside modal overlay to close
   $$('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closeModal(overlay.id);
     });
   });
 
-  // ESC key closes modals
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       $$('.modal-overlay.open').forEach(o => closeModal(o.id));
     }
   });
 
-  // Expeditions page
-  $('#newExpeditionBtn').addEventListener('click', () => openExpeditionModal());
-  $('#newExpeditionBtnEmpty').addEventListener('click', () => openExpeditionModal());
+  // ✅ Butoanele New Expedition — doar admin le poate folosi
+  $('#newExpeditionBtn').addEventListener('click', () => {
+    if (isAdmin()) openExpeditionModal();
+  });
+  $('#newExpeditionBtnEmpty').addEventListener('click', () => {
+    if (isAdmin()) openExpeditionModal();
+  });
   $('#saveExpeditionBtn').addEventListener('click', saveExpeditionForm);
   $('#searchInput').addEventListener('input', renderExpeditions);
   $('#filterStatus').addEventListener('change', renderExpeditions);
   $('#filterDifficulty').addEventListener('change', renderExpeditions);
 
-  // Calendar
   $('#calPrev').addEventListener('click', () => {
     calMonth--;
     if (calMonth < 0) { calMonth = 11; calYear--; }
@@ -1760,28 +1818,25 @@ function initAppListeners() {
     renderCalendar();
   });
 
-  // Members page
   $('#memberExpeditionFilter').addEventListener('change', (e) => {
     currentMemberExpId = e.target.value;
     renderMembersPage();
   });
   $('#addMemberBtn').addEventListener('click', () => {
-    if (currentMemberExpId) openMemberModal(currentMemberExpId);
+    if (currentMemberExpId && isAdmin()) openMemberModal(currentMemberExpId);
   });
   $('#saveMemberBtn').addEventListener('click', saveMemberForm);
   $('#saveEquipmentBtn').addEventListener('click', saveEquipmentForm);
 
-  // Costs page
   $('#costExpeditionFilter').addEventListener('change', (e) => {
     currentCostExpId = e.target.value;
     renderCostsPage();
   });
   $('#addExpenseBtn').addEventListener('click', () => {
-    if (currentCostExpId) openExpenseModal(currentCostExpId);
+    if (currentCostExpId && isAdmin()) openExpenseModal(currentCostExpId);
   });
   $('#saveExpenseBtn').addEventListener('click', saveExpenseForm);
 
-  // Custom split toggle
   $('#expenseSplitType').addEventListener('change', (e) => {
     const exp = getLocalExpedition($('#expenseExpId').value);
     if (e.target.value === 'custom' && exp) {
@@ -1792,11 +1847,18 @@ function initAppListeners() {
     }
   });
 
-  // Export / Import
-  $('#exportBtn').addEventListener('click', exportData);
+  // ✅ Export/Import — doar admin
+  $('#exportBtn').addEventListener('click', () => {
+    if (isAdmin()) exportData();
+    else showToast('Only admins can export data.', 'error');
+  });
   $('#importFile').addEventListener('change', (e) => {
-    importData(e.target.files[0]);
-    e.target.value = '';
+    if (isAdmin()) {
+      importData(e.target.files[0]);
+      e.target.value = '';
+    } else {
+      showToast('Only admins can import data.', 'error');
+    }
   });
 }
 
@@ -1804,19 +1866,23 @@ function initAppListeners() {
    22. ENTRY POINT
 ══════════════════════════════════════════ */
 
-// ✅ Auth listeners pornesc IMEDIAT
 initAuthListeners();
 
-// ✅ Firebase observă starea autentificării
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
+
+    // ✅ Fetch rol din Firestore
+    currentRole = await fetchUserRole(user.uid);
+
     showAppScreen(user);
+    applyRoleUI();
     initAppListeners();
     await startRealtimeSync();
     navigateTo('expeditions');
   } else {
     currentUser = null;
+    currentRole = 'user';
     expeditions = [];
     unsubListeners.forEach(u => u());
     unsubListeners = [];
