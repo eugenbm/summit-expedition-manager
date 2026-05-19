@@ -5,7 +5,15 @@
 
 'use strict';
 
-import { FIREBASE_CONFIG } from './firebase-config.js';
+// ✅ Pune config-ul direct:
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDFf9sGsd2iCadu2zxxaM3zIzH3t1YOzmo",
+  authDomain:        "summit-expedition-manager.firebaseapp.com",
+  projectId:         "summit-expedition-manager",
+  storageBucket:     "summit-expedition-manager.firebasestorage.app",
+  messagingSenderId: "213168288127",
+  appId:             "1:213168288127:web:5dc4eaa0aba0db6475aa4a"
+};
 
 import { initializeApp }                          from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, createUserWithEmailAndPassword,
