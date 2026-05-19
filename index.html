@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Mountain Expedition Management System" />
+  <meta name="theme-color" content="#1a2332" />
+  <title>Summit — Expedition Manager</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       AUTH SCREEN
+  ═══════════════════════════════════════════ -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="logo-icon">⛰️</span>
+        <span class="logo-text">Summit</span>
+      </div>
+      <p class="auth-subtitle">Mountain Expedition Manager</p>
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-tab="register">Register</button>
+      </div>
+
+      <!-- Login Form -->
+      <form class="auth-form active" id="loginForm" novalidate>
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="you@example.com" required />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="loginBtn">
+          Sign In
+        </button>
+        <button type="button" class="btn btn-ghost btn-full mt-8" id="forgotPasswordBtn">
+          Forgot password?
+        </button>
+      </form>
+
+      <!-- Register Form -->
+      <form class="auth-form" id="registerForm" novalidate>
+        <div class="form-group">
+          <label for="registerName">Full Name</label>
+          <input type="text" id="registerName" placeholder="Jane Doe" required />
+        </div>
+        <div class="form-group">
+          <label for="registerEmail">Email</label>
+          <input type="email" id="registerEmail" placeholder="you@example.com" required />
+        </div>
+        <div class="form-group">
+          <label for="registerPassword">Password</label>
+          <input type="password" id="registerPassword" placeholder="Min. 6 characters" required />
+        </div>
+        <div class="form-group">
+          <label for="registerPasswordConfirm">Confirm Password</label>
+          <input type="password" id="registerPasswordConfirm" placeholder="Repeat password" required />
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="registerBtn">
+          Create Account
+        </button>
+      </form>
+
+      <div class="auth-error" id="authError"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       MAIN APP (hidden until logged in)
+  ═══════════════════════════════════════════ -->
+  <div class="app-wrapper" id="appWrapper" style="display:none;">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">⛰️</span>
+          <span class="logo-text">Summit</span>
+        </div>
+        <button class="sidebar-close" id="sidebarClose" aria-label="Close sidebar">✕</button>
+      </div>
+
+      <!-- User info -->
+      <div class="sidebar-user" id="sidebarUser">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="userName">Loading…</div>
+          <div class="user-email" id="userEmail"></div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="expeditions">
+          <span class="nav-icon">🗺️</span>
+          <span class="nav-label">Expeditions</span>
+        </a>
+        <a href="#" class="nav-item" data-page="calendar">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">Calendar</span>
+        </a>
+        <a href="#" class="nav-item" data-page="members">
+          <span class="nav-icon">👥</span>
+          <span class="nav-label">Members</span>
+        </a>
+        <a href="#" class="nav-item" data-page="costs">
+          <span class="nav-icon">💰</span>
+          <span class="nav-label">Costs</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="btn-icon-text" id="exportBtn" title="Export all data as JSON">
+          <span>📤</span> Export
+        </button>
+        <label class="btn-icon-text" title="Import data from JSON backup">
+          <span>📥</span> Import
+          <input type="file" id="importFile" accept=".json" style="display:none;" />
+        </label>
+        <button class="btn-icon-text" id="signOutBtn">
+          <span>🚪</span> Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="mainContent">
+
+      <!-- TOP BAR -->
+      <header class="topbar">
+        <button class="hamburger" id="hamburger" aria-label="Open menu">☰</button>
+        <div class="topbar-title" id="topbarTitle">Expeditions</div>
+        <!-- Sync status indicator -->
+        <div class="sync-status" id="syncStatus">
+          <span class="sync-dot" id="syncDot"></span>
+          <span class="sync-label" id="syncLabel">Synced</span>
+        </div>
+        <div class="topbar-actions" id="topbarActions"></div>
+      </header>
+
+      <!-- Loading overlay -->
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <p>Loading…</p>
+      </div>
+
+      <!-- PAGE: EXPEDITIONS -->
+      <section class="page active" id="page-expeditions">
+        <div class="page-header">
+          <div class="search-bar">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" placeholder="Search expeditions…" />
+          </div>
+          <div class="filter-row">
+            <select id="filterStatus">
+              <option value="">All Statuses</option>
+              <option value="planned">Planned</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select id="filterDifficulty">
+              <option value="">All Difficulties</option>
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+              <option value="extreme">Extreme</option>
+            </select>
+            <button class="btn btn-primary" id="newExpeditionBtn">+ New Expedition</button>
+          </div>
+        </div>
+        <div class="cards-grid" id="expeditionsGrid"></div>
+        <div class="empty-state" id="expeditionsEmpty" style="display:none;">
+          <div class="empty-icon">🏔️</div>
+          <h3>No expeditions yet</h3>
+          <p>Start planning your first mountain adventure!</p>
+          <button class="btn btn-primary" id="newExpeditionBtnEmpty">+ New Expedition</button>
+        </div>
+      </section>
+
+      <!-- PAGE: CALENDAR -->
+      <section class="page" id="page-calendar">
+        <div class="calendar-controls">
+          <button class="btn btn-ghost" id="calPrev">‹ Prev</button>
+          <h2 class="cal-month-label" id="calMonthLabel">Month Year</h2>
+          <button class="btn btn-ghost" id="calNext">Next ›</button>
+          <button class="btn btn-ghost" id="calToday">Today</button>
+        </div>
+        <div class="calendar-legend">
+          <span class="legend-item planned">Planned</span>
+          <span class="legend-item ongoing">Ongoing</span>
+          <span class="legend-item completed">Completed</span>
+          <span class="legend-item cancelled">Cancelled</span>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </section>
+
+      <!-- PAGE: MEMBERS -->
+      <section class="page" id="page-members">
+        <div class="page-header">
+          <select id="memberExpeditionFilter" class="expedition-select">
+            <option value="">— Select an Expedition —</option>
+          </select>
+          <button class="btn btn-primary" id="addMemberBtn" style="display:none;">+ Add Member</button>
+        </div>
+        <div id="membersContent">
+          <div class="empty-state">
+            <div class="empty-icon">👥</div>
+            <h3>Select an expedition</h3>
+            <p>Choose an expedition above to manage its members.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE: COSTS -->
+      <section class="page" id="page-costs">
+        <div class="page-header">
+          <select id="costExpeditionFilter" class="expedition-select">
+            <option value="">— Select an Expedition —</option>
+          </select>
+          <button class="btn btn-primary" id="addExpenseBtn" style="display:none;">+ Add Expense</button>
+        </div>
+        <div id="costsContent">
+          <div class="empty-state">
+            <div class="empty-icon">💰</div>
+            <h3>Select an expedition</h3>
+            <p>Choose an expedition above to track its costs.</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       MODALS (identice cu versiunea anterioară)
+  ═══════════════════════════════════════════ -->
+
+  <!-- Modal: Expedition Form -->
+  <div class="modal-overlay" id="expeditionModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h2 id="expeditionModalTitle">New Expedition</h2>
+        <button class="modal-close" data-modal="expeditionModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="expeditionForm" novalidate>
+          <input type="hidden" id="expId" />
+          <div class="form-grid">
+            <div class="form-group full">
+              <label for="expName">Expedition Name *</label>
+              <input type="text" id="expName" placeholder="e.g. Mont Blanc Summer Ascent" required />
+            </div>
+            <div class="form-group full">
+              <label for="expDescription">Description</label>
+              <textarea id="expDescription" rows="3" placeholder="Describe the expedition goals, route, notes…"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="expLocation">Location / Mountain *</label>
+              <input type="text" id="expLocation" placeholder="e.g. Mont Blanc, Alps" required />
+            </div>
+            <div class="form-group">
+              <label for="expCoords">Coordinates (optional)</label>
+              <input type="text" id="expCoords" placeholder="45.8326° N, 6.8652° E" />
+            </div>
+            <div class="form-group">
+              <label for="expStartDate">Start Date *</label>
+              <input type="date" id="expStartDate" required />
+            </div>
+            <div class="form-group">
+              <label for="expEndDate">End Date *</label>
+              <input type="date" id="expEndDate" required />
+            </div>
+            <div class="form-group">
+              <label for="expDifficulty">Difficulty *</label>
+              <select id="expDifficulty" required>
+                <option value="">Select difficulty</option>
+                <option value="easy">Easy</option>
+                <option value="medium">Medium</option>
+                <option value="hard">Hard</option>
+                <option value="extreme">Extreme</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="expStatus">Status *</label>
+              <select id="expStatus" required>
+                <option value="planned">Planned</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="expBudget">Budget (optional)</label>
+              <input type="number" id="expBudget" placeholder="0.00" min="0" step="0.01" />
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="expeditionModal">Cancel</button>
+        <button class="btn btn-primary" id="saveExpeditionBtn">Save Expedition</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Expedition Detail -->
+  <div class="modal-overlay" id="detailModal">
+    <div class="modal modal-xl">
+      <div class="modal-header">
+        <h2 id="detailModalTitle">Expedition Details</h2>
+        <button class="modal-close" data-modal="detailModal">✕</button>
+      </div>
+      <div class="modal-body" id="detailModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="detailModal">Close</button>
+        <button class="btn btn-danger" id="detailDeleteBtn">Delete</button>
+        <button class="btn btn-primary" id="detailEditBtn">Edit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Member Form -->
+  <div class="modal-overlay" id="memberModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="memberModalTitle">Add Member</h2>
+        <button class="modal-close" data-modal="memberModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="memberForm" novalidate>
+          <input type="hidden" id="memberId" />
+          <input type="hidden" id="memberExpId" />
+          <div class="form-group">
+            <label for="memberName">Full Name *</label>
+            <input type="text" id="memberName" placeholder="e.g. Jane Doe" required />
+          </div>
+          <div class="form-group">
+            <label for="memberRole">Role *</label>
+            <select id="memberRole" required>
+              <option value="leader">Leader</option>
+              <option value="participant">Participant</option>
+              <option value="guide">Guide</option>
+              <option value="guest">Guest</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="memberContact">Contact Info</label>
+            <input type="text" id="memberContact" placeholder="Phone or email" />
+          </div>
+          <div class="form-group">
+            <label for="memberEmergency">Emergency Contact</label>
+            <input type="text" id="memberEmergency" placeholder="Name & phone" />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="memberModal">Cancel</button>
+        <button class="btn btn-primary" id="saveMemberBtn">Save Member</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Equipment Form -->
+  <div class="modal-overlay" id="equipmentModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="equipmentModalTitle">Add Equipment</h2>
+        <button class="modal-close" data-modal="equipmentModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="equipmentForm" novalidate>
+          <input type="hidden" id="equipId" />
+          <input type="hidden" id="equipExpId" />
+          <input type="hidden" id="equipMemberId" />
+          <div class="form-group">
+            <label for="equipName">Item Name *</label>
+            <input type="text" id="equipName" placeholder="e.g. Ice Axe" required />
+          </div>
+          <div class="form-group">
+            <label for="equipCategory">Category *</label>
+            <select id="equipCategory" required>
+              <option value="clothing">Clothing</option>
+              <option value="safety">Safety</option>
+              <option value="technical">Technical</option>
+              <option value="food">Food</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="equipWeight">Weight (kg, optional)</label>
+            <input type="number" id="equipWeight" placeholder="0.0" min="0" step="0.01" />
+          </div>
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" id="equipPacked" />
+              Packed / Ready
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="equipmentModal">Cancel</button>
+        <button class="btn btn-primary" id="saveEquipmentBtn">Save Item</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Expense Form -->
+  <div class="modal-overlay" id="expenseModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h2 id="expenseModalTitle">Add Expense</h2>
+        <button class="modal-close" data-modal="expenseModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="expenseForm" novalidate>
+          <input type="hidden" id="expenseId" />
+          <input type="hidden" id="expenseExpId" />
+          <div class="form-grid">
+            <div class="form-group full">
+              <label for="expenseTitle">Title *</label>
+              <input type="text" id="expenseTitle" placeholder="e.g. Permit fees" required />
+            </div>
+            <div class="form-group">
+              <label for="expenseAmount">Amount *</label>
+              <input type="number" id="expenseAmount" placeholder="0.00" min="0" step="0.01" required />
+            </div>
+            <div class="form-group">
+              <label for="expenseCategory">Category *</label>
+              <select id="expenseCategory" required>
+                <option value="transport">Transport</option>
+                <option value="food">Food</option>
+                <option value="accommodation">Accommodation</option>
+                <option value="equipment">Equipment</option>
+                <option value="permits">Permits</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="expensePaidBy">Paid By *</label>
+              <select id="expensePaidBy" required>
+                <option value="group">Group / Shared</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="expenseDate">Date *</label>
+              <input type="date" id="expenseDate" required />
+            </div>
+            <div class="form-group">
+              <label for="expenseSplitType">Split Type</label>
+              <select id="expenseSplitType">
+                <option value="equal">Equal Split</option>
+                <option value="custom">Custom Split</option>
+              </select>
+            </div>
+          </div>
+          <div id="customSplitContainer" style="display:none;">
+            <h4 class="section-label">Custom Split Amounts</h4>
+            <div id="customSplitFields"></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="expenseModal">Cancel</button>
+        <button class="btn btn-primary" id="saveExpenseBtn">Save Expense</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Confirm -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2>Confirm Action</h2>
+        <button class="modal-close" data-modal="confirmModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-modal="confirmModal">Cancel</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Firebase SDKs (modular, via CDN) -->
+  <script type="module" src="firebase-config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
